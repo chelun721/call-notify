@@ -1,0 +1,17 @@
+{
+  "name": "call-notify-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "远程来电通知服务端：WebSocket 长连接 + HTTP API 下发",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Android 11+ 的包可见性：不声明这段，App 看不到任何 TTS 引擎，
+        TextToSpeech 初始化直接失败，界面会显示"设备没有可用的语音引擎"。
+        这是 targetSdk 30+ 的常见坑，跟手机里有没有装引擎无关。
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <!-- 通话账户设置页在部分 ROM 里只有显式组件入口（一加/OPPO 把标准 action 藏了） -->
+        <intent>
+            <action android:name="android.telecom.action.CHANGE_PHONE_ACCOUNTS" />
+        </intent>
+        <package android:name="com.android.server.telecom" />
+        <package android:name="com.android.telecom" />
+        <package android:name="com.android.phone" />
+    </queries>
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- 注册通话账户 / 发起来电 -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Android 11+ 读 PhoneAccount（判断账户是否启用）需要它，否则 getPhoneAccount 直接抛 SecurityException -->
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- 后台常驻长连接 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 保活：Android 12+ 用精确闹钟才能从后台把前台服务拉回来 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.CallNotify"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- 一键导入配置：callnotify://setup?server=...&deviceId=...&key=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="callnotify" android:host="setup" />
+            </intent-filter>
+        </activity>
+
+        <!-- 来电由系统电话应用展示，这里只提供通话连接 -->
+        <service
+            android:name=".telecom.FakeCallConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
+        <!-- 维持 WebSocket 长连接 -->
+        <service
+            android:name=".service.RelayService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="保持与通知服务器的长连接，收到指令后触发系统来电" />
+        </service>
+
+        <receiver
+            android:name=".boot.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 保活闹钟：进程被清掉后把前台服务拉回来 -->
+        <receiver
+            android:name=".keepalive.KeepAliveReceiver"
+            android:exported="false" />
+
+        <!-- 保活兜底：persisted 周期任务，重启后仍存在 -->
+        <service
+            android:name=".keepalive.KeepAliveJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- 自动配置：代点系统权限弹窗 / 打开设置页里的开关 -->
+        <service
+            android:name=".autoconfig.AutoConfigService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+    </application>
+</manifest>

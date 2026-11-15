@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>来电通知 · 调试控制台</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --line: #e5e7eb;
+    --text: #111827;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --ok: #16a34a;
+    --warn: #d97706;
+    --err: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(22,163,74,.15); }
+  .meta { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px; margin-bottom: 14px;
+  }
+  label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; font-weight: 500; }
+  label:first-child { margin-top: 0; }
+  input, textarea, select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; color: var(--text); background: #fff; outline: none; transition: border-color .15s;
+  }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 72px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  button {
+    margin-top: 16px; width: 100%; padding: 11px; border: 0; border-radius: 9px;
+    background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: .9; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.ghost { background: #fff; color: var(--text); border: 1px solid var(--line); width: auto; margin: 0; padding: 7px 12px; font-size: 12px; }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 9px;
+    font-size: 12px; overflow: auto; margin: 10px 0 0; max-height: 240px;
+  }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .badge { display: inline-block; padding: 1px 7px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .b-ok { background: rgba(22,163,74,.1); color: var(--ok); }
+  .b-warn { background: rgba(217,119,6,.1); color: var(--warn); }
+  .b-err { background: rgba(220,38,38,.1); color: var(--err); }
+  .b-mute { background: #f3f4f6; color: var(--muted); }
+  h2 { font-size: 13px; margin: 0 0 2px; font-weight: 650; }
+  .sub { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  code { background: #f3f4f6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>来电通知 · 调试控制台</h1>
+    <span class="meta" id="stat">连接中…</span>
+  </header>
+
+  <div class="card">
+    <h2>下发一条通知</h2>
+    <div class="sub">填入手机上显示的设备密钥，服务端会推送到该设备并触发模拟来电。</div>
+
+    <label>设备密钥（API Key）</label>
+    <input id="key" placeholder="cn_xxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false" />
+    <div class="hint">在安卓 App 首页可以复制。密钥会保存在本机浏览器，下次自动填。</div>
+
+    <div class="row">
+      <div>
+        <label>来电名称</label>
+        <input id="callerName" value="张经理" />
+      </div>
+      <div>
+        <label>来电号码</label>
+        <input id="callerNumber" value="13800138000" />
+      </div>
+    </div>
+
+    <label>通知内容（接听后 TTS 朗读）</label>
+    <textarea id="text">服务器 CPU 使用率已超过 90%，请立即处理。</textarea>
+
+    <div class="row">
+      <div>
+        <label>延迟（秒）</label>
+        <input id="delaySeconds" type="number" value="0" min="0" max="3600" />
+      </div>
+      <div>
+        <label>响铃超时（秒）</label>
+        <input id="ringSeconds" type="number" value="60" min="10" max="300" />
+      </div>
+      <div>
+        <label>朗读次数</label>
+        <input id="speakTimes" type="number" value="1" min="1" max="5" />
+      </div>
+    </div>
+
+    <button id="send">发送通知</button>
+    <div id="result" class="hint"></div>
+  </div>
+
+  <div class="card">
+    <h2>通知状态</h2>
+    <div class="sub">点击「发送」后可在这里跟踪投递与接听状态。</div>
+    <div id="statusBox" class="hint">暂无</div>
+  </div>
+
+  <div class="card">
+    <h2>用 curl 调用</h2>
+    <div class="sub">通知端不需要装任何东西，一条 HTTP 请求即可。</div>
+    <pre id="curl"></pre>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const base = location.origin;
+
+$('key').value = localStorage.getItem('cn_key') || '';
+$('key').addEventListener('change', () => localStorage.setItem('cn_key', $('key').value.trim()));
+
+function refreshStat() {
+  fetch(base + '/health')
+    .then((r) => r.json())
+    .then((d) => {
+      $('dot').classList.add('on');
+      $('stat').textContent = `在线设备 ${d.online} · 已注册 ${d.devices} · 运行 ${d.uptimeSec}s`;
+    })
+    .catch(() => {
+      $('dot').classList.remove('on');
+      $('stat').textContent = '服务端不可达';
+    });
+}
+refreshStat();
+setInterval(refreshStat, 10000);
+
+function updateCurl() {
+  const body = {
+    callerName: $('callerName').value,
+    callerNumber: $('callerNumber').value,
+    text: $('text').value,
+    delaySeconds: Number($('delaySeconds').value) || 0,
+    ringSeconds: Number($('ringSeconds').value) || 60,
+    speakTimes: Number($('speakTimes').value) || 1,
+  };
+  $('curl').textContent =
+    `curl -X POST ${base}/api/v1/notify \\\n` +
+    `  -H "Content-Type: application/json" \\\n` +
+    `  -H "X-API-Key: ${$('key').value || '<你的设备密钥>'}" \\\n` +
+    `  -d '${JSON.stringify(body, null, 2)}'`;
+}
+['callerName', 'callerNumber', 'text', 'delaySeconds', 'ringSeconds', 'speakTimes', 'key']
+  .forEach((id) => $(id).addEventListener('input', updateCurl));
+updateCurl();
+
+const STATUS_TEXT = {
+  created: '已创建', queued: '排队中（设备离线）', sent: '已推送', delivered: '已送达手机',
+  ringing: '正在响铃', answered: '已接听', completed: '播放完成', rejected: '被拒接',
+  missed: '无人接听', failed: '失败', ignored: '已忽略',
+};
+
+let lastId = null;
+function renderStatus(d) {
+  const cls = d.status === 'completed' || d.status === 'answered' ? 'b-ok'
+    : d.status === 'queued' || d.status === 'sent' || d.status === 'delivered' ? 'b-warn'
+    : d.status === 'failed' ? 'b-err' : 'b-mute';
+  $('statusBox').innerHTML =
+    `<span class="badge ${cls}">${STATUS_TEXT[d.status] || d.status}</span>` +
+    `<div style="margin-top:8px;font-size:12px;color:#6b7280">` +
+    `ID: <code>${d.id}</code> · 更新于 ${new Date(d.updatedAt).toLocaleTimeString()}` +
+    (d.note ? `<br>备注：${d.note}` : '') +
+    `</div>`;
+}
+
+$('send').addEventListener('click', async () => {
+  const key = $('key').value.trim();
+  if (!key) { $('result').innerHTML = '<span style="color:#dc2626">请先填写设备密钥</span>'; return; }
+  localStorage.setItem('cn_key', key);
+
+  const btn = $('send');
+  btn.disabled = true;
+  btn.textContent = '发送中…';
+  try {
+    const r = await fetch(base + '/api/v1/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+      body: JSON.stringify({
+        callerName: $('callerName').value,
+        callerNumber: $('callerNumber').value,
+        text: $('text').value,
+        delaySeconds: Number($('delaySeconds').value) || 0,
+        ringSeconds: Number($('ringSeconds').value) || 60,
+        speakTimes: Number($('speakTimes').value) || 1,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    $('result').innerHTML = `<span style="color:#16a34a">已提交</span> · ${d.status} · ${d.deviceOnline ? '设备在线' : '设备离线，已排队'}`;
+    lastId = d.id;
+    pollStatus();
+  } catch (e) {
+    $('result').innerHTML = `<span style="color:#dc2626">失败：${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '发送通知';
+  }
+});
+
+let pollTimer = null;
+function pollStatus() {
+  clearInterval(pollTimer);
+  let n = 0;
+  const tick = async () => {
+    if (!lastId || n++ > 40) return clearInterval(pollTimer);
+    try {
+      const r = await fetch(`${base}/api/v1/notify/${lastId}`, {
+        headers: { 'X-API-Key': $('key').value.trim() },
+      });
+      if (r.ok) renderStatus(await r.json());
+    } catch {}
+  };
+  tick();
+  pollTimer = setInterval(tick, 2000);
+}
+</script>
+</body>
+</html>

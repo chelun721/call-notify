@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">来电通知</string>
+    <string name="accessibility_desc">仅用于首次配置：自动点击系统弹出的「允许」，并在设置页里打开「来电通知」的开关。不会读取你在其它应用里的内容。</string>
+</resources>
