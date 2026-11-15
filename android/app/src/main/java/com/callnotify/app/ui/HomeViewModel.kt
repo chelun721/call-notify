@@ -44,6 +44,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     var accountDetail by mutableStateOf("")
     var ttsEngines by mutableStateOf(installedEngines(app))
     var aggressiveWake by mutableStateOf(prefs.aggressiveWake)
+    var lockScreenKeepAlive by mutableStateOf(prefs.lockScreenKeepAlive)
+    var guardEnabled by mutableStateOf(prefs.guardEnabled)
     var exactAlarmAllowed by mutableStateOf(KeepAlive.exactAlarmAllowed(app))
 
     private var bootstrapped = false
@@ -245,8 +247,27 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun updateLockScreenKeepAlive(value: Boolean) {
+        lockScreenKeepAlive = value
+        prefs.lockScreenKeepAlive = value
+        AppState.log(if (value) "锁屏保活已开启（耗电会增加）" else "锁屏保活已关闭")
+        // 立刻生效：重新拉起服务，让它按新设置注册/释放锁
+        RelayService.stop(getApplication())
+        startService()
+    }
+
+    fun updateGuardEnabled(value: Boolean) {
+        guardEnabled = value
+        prefs.guardEnabled = value
+        AppState.log(if (value) "极限保活已开启（守护进程 + 5 秒心跳）" else "极限保活已关闭")
+        RelayService.stop(getApplication())
+        startService()
+    }
+
     fun refreshWakeState() {
         exactAlarmAllowed = KeepAlive.exactAlarmAllowed(getApplication())
+        lockScreenKeepAlive = prefs.lockScreenKeepAlive
+        guardEnabled = prefs.guardEnabled
     }
 
     /** 本机直接触发一次来电，用来验证权限与系统集成 */

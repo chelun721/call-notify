@@ -64,6 +64,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(K_AUTOCONFIG_DONE, false)
         set(value) { sp.edit().putBoolean(K_AUTOCONFIG_DONE, value).apply() }
 
+    /**
+     * 锁屏保活：屏幕熄灭后持有 CPU 唤醒锁 + 高性能 Wi-Fi 锁，
+     * 让系统不进入 Doze 深度休眠，长连接才能一直活着。
+     * 代价是耗电明显上升，所以单独做成开关。
+     */
+    var lockScreenKeepAlive: Boolean
+        get() = sp.getBoolean(K_LOCKSCREEN, true)
+        set(value) { sp.edit().putBoolean(K_LOCKSCREEN, value).apply() }
+
     /** 极限保活：多进程守护 + 5 秒级心跳（默认开，掉线通知软件优先保证在线） */
     var guardEnabled: Boolean
         get() = sp.getBoolean(K_GUARD, true)
@@ -115,6 +124,7 @@ class Prefs(context: Context) {
         private const val K_AUTOCONFIG_DONE = "autoconfig_done"
         private const val K_AGGRESSIVE_WAKE = "aggressive_wake"
         private const val K_GUARD = "guard_enabled"
+        private const val K_LOCKSCREEN = "lockscreen_keepalive"
 
         fun defaultName(): String = (Build.MODEL ?: "Android").take(24)
 

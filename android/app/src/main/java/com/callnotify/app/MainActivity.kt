@@ -578,7 +578,15 @@ private fun BehaviorCard(vm: HomeViewModel) {
         DividerLine()
         SwitchRow("朗读完自动挂断", null, vm.autoHangup) { vm.updateAutoHangup(it) }
         DividerLine()
-        SwitchRow("激进保活（状态栏显示闹钟）", "关掉会更快恢复吗？不会——这开关决定系统能否按时唤醒", vm.aggressiveWake) {
+        SwitchRow("锁屏也保持在线", "息屏后持有 CPU/Wi-Fi 唤醒锁，明显耗电但锁屏也能收到通知", vm.lockScreenKeepAlive) {
+            vm.updateLockScreenKeepAlive(it)
+        }
+        DividerLine()
+        SwitchRow("极限保活（守护进程 + 5 秒心跳）", "多进程互相拉起，内存占用略增", vm.guardEnabled) {
+            vm.updateGuardEnabled(it)
+        }
+        DividerLine()
+        SwitchRow("激进保活（状态栏显示闹钟）", "决定系统能否按时唤醒，关掉后唤醒可能被推迟", vm.aggressiveWake) {
             vm.updateAggressiveWake(it)
         }
         if (!vm.exactAlarmAllowed) {

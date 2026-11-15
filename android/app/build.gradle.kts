@@ -22,8 +22,8 @@ android {
         applicationId = "com.callnotify.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 12
-        versionName = "2.0.0"
+        versionCode = 13
+        versionName = "2.1.0"
 
         // 默认留空：首次打开由用户填写服务器地址。
         // 想「装入即用」时在编译期注入：-Pcallnotify.defaultServer=https://your-server:8787

@@ -20,6 +20,7 @@ import com.callnotify.app.core.AppState
 import com.callnotify.app.core.ConnState
 import com.callnotify.app.core.DeviceApi
 import com.callnotify.app.core.Prefs
+import com.callnotify.app.core.SetupAssistant
 import com.callnotify.app.keepalive.GuardService
 import com.callnotify.app.keepalive.KeepAlive
 import com.callnotify.app.net.NotificationPayload
@@ -53,6 +54,8 @@ class RelayService : Service() {
     private var authRetryJob: Job? = null
     private var guardBound = false
     private var screenReceiver: BroadcastReceiver? = null
+    private var screenOffWakelock: PowerManager.WakeLock? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
     private var stoppedByUser = false
     private var lastOnlineAt = 0L
 
@@ -166,17 +169,68 @@ class RelayService : Service() {
     private fun registerScreenReceiver() {
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_USER_PRESENT)
         }
         screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                if (client?.isOnline() == true) return
-                AppState.log("屏幕亮起，立即重连")
-                holdWakeLockBriefly()
-                client?.reconnectNow("屏幕亮起")
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> enterScreenOffMode()
+                    else -> {
+                        exitScreenOffMode()
+                        if (client?.isOnline() != true) {
+                            AppState.log("屏幕亮起，立即重连")
+                            holdWakeLockBriefly()
+                            client?.reconnectNow("屏幕亮起")
+                        }
+                    }
+                }
             }
         }
         runCatching { registerReceiver(screenReceiver, filter) }
+    }
+
+    /**
+     * 锁屏保活：屏幕熄灭后持有 CPU 唤醒锁 + 高性能 Wi-Fi 锁。
+     *
+     * 原理：Doze 会在息屏静止一段时间后切断网络、冻结 CPU，长连接必然断。
+     * 持有 PARTIAL_WAKE_LOCK 让 CPU 不挂起，WifiLock(HIGH_PERF) 让 Wi-Fi 无线不休眠，
+     * 两把锁一起才能真的"锁屏也在线"——代价是耗电明显上升，所以做成可选开关。
+     */
+    private fun enterScreenOffMode() {
+        val prefs = Prefs(this)
+        if (!prefs.lockScreenKeepAlive) return
+        if (!SetupAssistant.batteryOptimizationIgnored(this)) {
+            AppState.log("警告：未加入电池优化白名单，锁屏后系统仍可能切断网络", 2)
+        }
+        runCatching {
+            val pm = getSystemService(PowerManager::class.java)
+            if (screenOffWakelock?.isHeld != true) {
+                screenOffWakelock = pm?.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK, "CallNotify:screenoff"
+                )?.apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+            val wm = applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+            if (wifiLock?.isHeld != true && wm != null) {
+                wifiLock = wm.createWifiLock(
+                    android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "CallNotify:wifi"
+                ).apply {
+                    setReferenceCounted(false)
+                    acquire()
+                }
+            }
+            AppState.log("锁屏保活开启：CPU 与 Wi-Fi 保持唤醒")
+        }.onFailure { AppState.log("锁屏保活失败：${it.message}", 2) }
+    }
+
+    private fun exitScreenOffMode() {
+        runCatching { screenOffWakelock?.takeIf { it.isHeld }?.release() }
+        runCatching { wifiLock?.takeIf { it.isHeld }?.release() }
+        screenOffWakelock = null
+        wifiLock = null
     }
 
     private val guardConnection = object : ServiceConnection {
@@ -264,6 +318,7 @@ class RelayService : Service() {
         statusJob?.cancel()
         watchdogJob?.cancel()
         authRetryJob?.cancel()
+        exitScreenOffMode()
         screenReceiver?.let { runCatching { unregisterReceiver(it) } }
         screenReceiver = null
         if (guardBound) {
