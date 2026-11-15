@@ -64,6 +64,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(K_AUTOCONFIG_DONE, false)
         set(value) { sp.edit().putBoolean(K_AUTOCONFIG_DONE, value).apply() }
 
+    /** 极限保活：多进程守护 + 5 秒级心跳（默认开，掉线通知软件优先保证在线） */
+    var guardEnabled: Boolean
+        get() = sp.getBoolean(K_GUARD, true)
+        set(value) { sp.edit().putBoolean(K_GUARD, value).apply() }
+
     /**
      * 激进保活：用 AlarmClock 做心跳。
      * 不需要任何权限、永远精确、Doze 也唤醒，是纯手机方案里最稳的一种；
@@ -109,6 +114,7 @@ class Prefs(context: Context) {
         private const val K_AUTOSTART_ACK = "autostart_ack"
         private const val K_AUTOCONFIG_DONE = "autoconfig_done"
         private const val K_AGGRESSIVE_WAKE = "aggressive_wake"
+        private const val K_GUARD = "guard_enabled"
 
         fun defaultName(): String = (Build.MODEL ?: "Android").take(24)
 

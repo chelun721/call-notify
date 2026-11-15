@@ -15,7 +15,9 @@ import com.callnotify.app.service.RelayService
 object Notifications {
 
     const val CHANNEL_SERVICE = "call_notify_service"
+    const val CHANNEL_GUARD = "call_notify_guard"
     const val SERVICE_ID = 1001
+    const val GUARD_ID = 1002
 
     fun ensureChannels(context: Context) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
@@ -42,6 +44,18 @@ object Notifications {
             // 老版本装过 IMPORTANCE_MIN 的渠道，改不回去，只能删了重建
             nm.deleteNotificationChannel(CHANNEL_SERVICE)
             nm.createNotificationChannel(channel)
+        }
+
+        // 守护进程用单独的渠道，静默、低优先级，不打扰
+        if (nm.getNotificationChannel(CHANNEL_GUARD) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_GUARD, "进程守护", NotificationManager.IMPORTANCE_MIN).apply {
+                    description = "保持后台连接不被系统回收"
+                    setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+            )
         }
     }
 

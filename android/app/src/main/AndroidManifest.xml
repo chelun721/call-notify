@@ -102,6 +102,13 @@
             android:name=".keepalive.KeepAliveReceiver"
             android:exported="false" />
 
+        <!-- 极限保活：守护进程跑在独立进程，两边互相 bind 拉起 -->
+        <service
+            android:name=".keepalive.GuardService"
+            android:process=":guard"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse" />
+
         <!-- 保活兜底：persisted 周期任务，重启后仍存在 -->
         <service
             android:name=".keepalive.KeepAliveJobService"

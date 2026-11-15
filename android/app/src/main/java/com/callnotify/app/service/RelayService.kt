@@ -4,6 +4,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.IntentFilter
+import android.content.ServiceConnection
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
@@ -16,6 +20,7 @@ import com.callnotify.app.core.AppState
 import com.callnotify.app.core.ConnState
 import com.callnotify.app.core.DeviceApi
 import com.callnotify.app.core.Prefs
+import com.callnotify.app.keepalive.GuardService
 import com.callnotify.app.keepalive.KeepAlive
 import com.callnotify.app.net.NotificationPayload
 import com.callnotify.app.net.RelayClient
@@ -46,6 +51,9 @@ class RelayService : Service() {
     private var watchdogJob: Job? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var authRetryJob: Job? = null
+    private var guardBound = false
+    private var screenReceiver: BroadcastReceiver? = null
+    private var stoppedByUser = false
     private var lastOnlineAt = 0L
 
     override fun onCreate() {
@@ -67,7 +75,9 @@ class RelayService : Service() {
 
         startWatchdog()
         registerNetworkCallback()
+        registerScreenReceiver()
         KeepAlive.scheduleTicks(this)
+        maybeStartGuard()
     }
 
     /**
@@ -147,8 +157,60 @@ class RelayService : Service() {
         }
     }
 
+    /**
+     * 屏幕亮起 / 用户解锁时立刻补一次连接。
+     *
+     * 这是"最容易被忽略但最有效"的一条：手机被冻结一晚上，用户一拿起手机（亮屏/解锁）
+     * 就把连接补上，感知上接近"一直在线"。
+     */
+    private fun registerScreenReceiver() {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (client?.isOnline() == true) return
+                AppState.log("屏幕亮起，立即重连")
+                holdWakeLockBriefly()
+                client?.reconnectNow("屏幕亮起")
+            }
+        }
+        runCatching { registerReceiver(screenReceiver, filter) }
+    }
+
+    private val guardConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) = Unit
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            guardBound = false
+            if (!Prefs(this@RelayService).guardEnabled) return
+            AppState.log("守护进程被回收，正在拉起", 2)
+            GuardService.start(this@RelayService)
+            bindToGuard()
+        }
+    }
+
+    /** 启动守护进程（:guard 独立进程），两边互相 bind 互相拉起 */
+    private fun maybeStartGuard() {
+        val prefs = Prefs(this)
+        if (!prefs.guardEnabled) return
+        GuardService.start(this)
+        bindToGuard()
+    }
+
+    private fun bindToGuard() {
+        if (guardBound) return
+        val intent = Intent(this, GuardService::class.java)
+        guardBound = runCatching {
+            bindService(intent, guardConnection, Context.BIND_AUTO_CREATE)
+        }.getOrDefault(false)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            stoppedByUser = true
+            GuardService.stop(this)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -165,7 +227,10 @@ class RelayService : Service() {
         return START_STICKY
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    private val binder = android.os.Binder()
+
+    // 返回非空 Binder：守护进程靠 bindService 的 onServiceDisconnected 感知本服务死亡
+    override fun onBind(intent: Intent?): IBinder = binder
 
     /**
      * 用户从"最近任务"里划掉 App 时会被调用（进程随时可能被杀）。
@@ -193,17 +258,33 @@ class RelayService : Service() {
     }
 
     override fun onDestroy() {
+        val shouldRestart = Prefs(this).serviceEnabled && Prefs(this).registered && !stoppedByUser
         releaseWakeLock()
         ackJob?.cancel()
         statusJob?.cancel()
         watchdogJob?.cancel()
         authRetryJob?.cancel()
+        screenReceiver?.let { runCatching { unregisterReceiver(it) } }
+        screenReceiver = null
+        if (guardBound) {
+            runCatching { unbindService(guardConnection) }
+            guardBound = false
+        }
+        if (!shouldRestart) GuardService.stop(this)
         networkCallback?.let { cb ->
             runCatching { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
         }
         client?.close()
         client = null
         scope.cancel()
+
+        // 被系统回收时立刻安排自启（"自杀式重启"）。用户主动停止时不重启。
+        if (shouldRestart) {
+            AppState.log("主服务被回收，1 秒后自启", 2)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                start(this@RelayService)
+            }, 1_000)
+        }
         super.onDestroy()
     }
 
@@ -217,6 +298,7 @@ class RelayService : Service() {
             scope = scope,
             onNotify = { handleNotify(it) },
             onAuthFailed = { handleAuthFailed() },
+            fastHeartbeat = prefs.guardEnabled,
         )
         client = relay
         relay.connect()

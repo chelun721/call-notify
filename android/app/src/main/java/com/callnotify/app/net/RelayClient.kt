@@ -34,6 +34,8 @@ class RelayClient(
     private val scope: CoroutineScope,
     private val onNotify: (NotificationPayload) -> Unit,
     private val onAuthFailed: () -> Unit = {},
+    /** 极限保活：心跳 5 秒、判定 12 秒（默认）；否则 10 秒 / 20 秒 */
+    private val fastHeartbeat: Boolean = true,
 ) {
 
     private val http = OkHttpClient.Builder()
@@ -145,7 +147,11 @@ class RelayClient(
 
     /** 退避：0.3s 起，最长 10s，带抖动 */
     private fun nextDelayMs(): Long {
-        val table = longArrayOf(300, 600, 1_000, 2_000, 3_000, 5_000, 8_000, 10_000)
+        val table = if (fastHeartbeat) {
+            longArrayOf(200, 400, 800, 1_500, 2_500, 4_000, 6_000, 8_000)
+        } else {
+            longArrayOf(300, 600, 1_000, 2_000, 3_000, 5_000, 8_000, 10_000)
+        }
         val base = table[attempt.coerceAtMost(table.lastIndex)]
         attempt++
         val jitter = (base * 0.2 * (Random.nextDouble() * 2 - 1)).toLong()
@@ -169,15 +175,18 @@ class RelayClient(
      * 这是解决"划掉后 30~90 秒才恢复"的关键——以前阈值 40 秒，
      * 光等检测就耗掉大半时间；现在最坏 20 秒，通常 10 秒内就能发现。
      */
+    private val heartbeatSendMs = if (fastHeartbeat) 5_000L else 10_000L
+    private val heartbeatTimeoutMs = if (fastHeartbeat) 12_000L else 20_000L
+
     private fun startHeartbeat() {
         heartbeatJob?.cancel()
         lastRecvAt = System.currentTimeMillis()
         heartbeatJob = scope.launch {
             while (isActive && !closed) {
-                delay(10_000)
+                delay(heartbeatSendMs)
                 if (closed) break
                 val silentFor = System.currentTimeMillis() - lastRecvAt
-                if (silentFor > 20_000) {
+                if (silentFor > heartbeatTimeoutMs) {
                     AppState.log("连接假死（${silentFor / 1000}s 无数据），主动重连", 2)
                     online = false
                     runCatching { socket?.cancel() }
