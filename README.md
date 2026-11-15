@@ -260,6 +260,13 @@ cd server && node tools/e2e-test.js http://127.0.0.1:8787
 
 版本号规则：`versionCode` 每次 +1，`versionName` 语义化递增；APK 产物按 `CallNotify-<versionName>-<buildType>.apk` 命名。
 
+发布（编译三平台服务端 + APK、生成 SHA256、建 Release、上传资产）：
+
+```powershell
+$env:GITHUB_TOKEN = "github_pat_xxx"
+.\tools\release.ps1 -Version 1.10.0
+```
+
 ## 安全建议
 
 - 公网部署请套 HTTPS：App 里填 `https://` 会自动走 `wss://`；
